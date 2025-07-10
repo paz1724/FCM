@@ -1,4 +1,4 @@
-function FCMClustererWrapper()
+function FCM_Clusterer_Wrapper()
 % Generate demo data
 seed = 1724;
 rng(seed);
