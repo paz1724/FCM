@@ -1,0 +1,243 @@
+classdef cFCM < handle
+    %FCMCLUSTERER  Fuzzy C-Means clustering with auto-selection and outlier removal
+    %
+    % Tunable Properties:
+    %   numClusters           - # clusters (c). If empty & autoSelect=true, determined via optimize.
+    %   autoSelect            - logical; if true, pick numClusters automatically.
+    %   clusterRange          - vector of candidate c values when autoSelect=true.
+    %   validityIndex         - 'XB' (Xie–Beni) or 'PC' (Partition Coeff).
+    %   fuzzifier             - fuzziness exponent m (>1).
+    %   maxIter               - max iterations for FCM.
+    %   tol                   - center‐shift tolerance.
+    %   distanceMetric        - @(X,V) → N×c distances between data X and centers V.
+    %   outlierMethod         - 'iqr' or 'percentile'.
+    %   outlierFraction       - fraction to keep if 'percentile'.
+    %   outlierIQRFactor      - IQR multiplier if 'iqr'.
+    %   iqrLowerPercentile    - lower percentile for IQR (default 25).
+    %   iqrUpperPercentile    - upper percentile for IQR (default 75).
+    %
+    % After fit(X), these are set:
+    %   centers     - c×d cluster centers.
+    %   labels      - N×1 hard labels (1…c).
+    %   cleanLabels - N×1 labels after outlier pruning (0 = removed).
+    %   outlierIdx  - N×1 logical mask of removed points.
+
+    %% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ %%
+    %% ~~~~~~~~~~~~~~~ Properties ~~~~~~~~~~~~~~~~~~ %%
+    %% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ %%
+    properties
+        numClusters        = []
+        autoSelect         = false
+        clusterRange       = 1:6
+        validityIndex      = 'XB'
+        fuzzifier          = 2.0
+        maxIter            = 100
+        tol                = 1e-5
+        distanceMetric     = @(X,V) pdist2(X,V)
+        outlierMethod      = 'iqr'
+        outlierFraction    = 0.90
+        outlierIQRFactor   = 1.5
+        iqrLowerPercentile = 25
+        iqrUpperPercentile = 75
+    end
+
+    %% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ %%
+    %% ~~~~~~~~~~~~ Private Properties ~~~~~~~~~~~~~ %%
+    %% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ %%
+    properties (SetAccess=private)
+        centers
+        labels
+        cleanLabels
+        outlierIdx
+    end
+
+    %% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ %%
+    %% ~~~~~~~~~~~~~~~~~ Methods ~~~~~~~~~~~~~~~~~~~ %%
+    %% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ %%
+    methods
+        %% ~~~~~~~~~~~~~~~ FCMClusterer ~~~~~~~~~~~~~~~ %%
+        function obj = cFCM(varargin)
+            % Allow name/value assignments
+            if mod(numel(varargin),2)~=0
+                error('Name/value pairs required.');
+            end
+            for k=1:2:numel(varargin)
+                prop = varargin{k}; val = varargin{k+1};
+                if isprop(obj,prop)
+                    obj.(prop) = val;
+                else
+                    error('Unknown property "%s".', prop);
+                end
+            end
+        end
+
+        %% ~~~~~~~~~~~~~~~ fit ~~~~~~~~~~~~~~~ %%
+        function Fit(obj, X)
+            %FIT  Run FCM, auto‐selecting c if requested
+            if obj.autoSelect
+                obj.numClusters = obj.Select_optimal_C(X);
+                fprintf('Auto‐selected numClusters = %d\n', obj.numClusters);
+            elseif isempty(obj.numClusters)
+                error('numClusters empty & autoSelect=false.');
+            end
+            [obj.labels, obj.centers] = obj.Run(obj.numClusters, X);
+            obj.cleanLabels = obj.labels;
+            obj.outlierIdx  = false(size(X,1),1);
+        end
+
+        %% ~~~~~~~~~~~~~~~ pruneOutliers ~~~~~~~~~~~~~~~ %%
+        function Prune_outliers(obj, X)
+            %PRUNEOUTLIERS  Remove per-cluster outliers by chosen rule
+            if isempty(obj.labels)
+                error('Call fit(X) first.');
+            end
+            N      = size(X,1); K = obj.numClusters;
+            clean  = obj.labels;
+            outidx = false(N,1);
+            for k=1:K
+                idx = find(obj.labels==k);
+                if isempty(idx), continue; end
+                d = sqrt(sum((X(idx,:)-obj.centers(k,:)).^2,2));
+                switch lower(obj.outlierMethod)
+                    case 'iqr'
+                        Q1  = prctile(d, obj.iqrLowerPercentile);
+                        Q3  = prctile(d, obj.iqrUpperPercentile);
+                        thr = Q3 + obj.outlierIQRFactor*(Q3 - Q1);
+                    case 'percentile'
+                        thr = prctile(d, obj.outlierFraction*100);
+                    otherwise
+                        error('Unknown outlierMethod "%s".', obj.outlierMethod);
+                end
+                bad = d > thr;
+                outidx(idx(bad)) = true;
+                clean(idx(bad))  = 0;
+            end
+            obj.cleanLabels = clean;
+            obj.outlierIdx  = outidx;
+        end
+
+        %% ~~~~~~~~~~~~~~~ plotResults ~~~~~~~~~~~~~~~ %%
+        function Plot_results(obj, X)
+            %PLOTRESULTS  Show raw vs. pruned clustering
+            if isempty(obj.labels)
+                error('Call fit(X) first.');
+            end
+            c = obj.numClusters;
+            cols = lines(c);
+
+            figure;
+            subplot(1,2,1); hold on; grid on; axis equal;
+            for k=1:c
+                scatter(X(obj.labels==k,1), X(obj.labels==k,2), 36, cols(k,:), 'filled');
+            end
+            scatter(obj.centers(:,1), obj.centers(:,2), 100, 'k*','LineWidth',1.5);
+            title('FCM (raw)');
+            legend([arrayfun(@(k)sprintf('C%d',k),1:c,'uni',false),{'Centers'}], ...
+                   'Location','BestOutside');
+
+            subplot(1,2,2); hold on; grid on; axis equal;
+            for k=1:c
+                scatter(X(obj.cleanLabels==k,1), X(obj.cleanLabels==k,2), 36, cols(k,:), 'filled');
+            end
+            scatter(X(obj.outlierIdx,1), X(obj.outlierIdx,2), 36, [.5 .5 .5], 'x');
+            scatter(obj.centers(:,1), obj.centers(:,2), 100, 'k*','LineWidth',1.5);
+            title('FCM (pruned)');
+            legend([arrayfun(@(k)sprintf('C%d',k),1:c,'uni',false),{'Outliers','Centers'}], ...
+                   'Location','BestOutside');
+            plotbrowser('on');
+        end
+    
+    end
+
+    %% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ %%
+    %% ~~~~~~~~~~~~~ Private Methods ~~~~~~~~~~~~~~~ %%
+    %% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ %%
+    methods (Access=private)
+        %% ~~~~~~~~~~~~~~~ Run ~~~~~~~~~~~~~~~ %%
+        function [labels, centers] = Run(obj, c, X)
+            % Vectorized FCM: hard labels + centers
+            [N,d] = size(X);
+            p     = 2/(obj.fuzzifier-1);
+            U     = rand(c,N); 
+            U     = bsxfun(@rdivide, U, sum(U,1));
+            v     = (U.^obj.fuzzifier * X) ./ (sum(U.^obj.fuzzifier,2)*ones(1,d));
+            vOld  = v; 
+            delta = inf; 
+            it    = 0;
+            while it<obj.maxIter && delta>obj.tol
+                Dmat  = obj.distanceMetric(X, v);      % N×c
+                DP    = Dmat.^(-p);                    % N×c
+                U     = bsxfun(@rdivide, DP', sum(DP,2)'); % c×N
+                vnew  = (U.^obj.fuzzifier * X) ./ (sum(U.^obj.fuzzifier,2)*ones(1,d));
+                delta = max(abs(vnew(:)-vOld(:)));
+                vOld  = vnew; 
+                v     = vnew; 
+                it    = it+1;
+            end
+            [~, labs] = max(U,[],1);
+            labels  = labs(:);
+            centers = v;
+        end
+
+        %% ~~~~~~~~~~~~~~~ Select_optimal_C ~~~~~~~~~~~~~~~ %%
+        function bestC = Select_optimal_C(obj, X)
+            % Brute‐force search over clusterRange
+            bestVal = Inf; bestC = obj.clusterRange(1);
+            for c = obj.clusterRange
+                val = obj.Validity_cost(c, X);
+                if val < bestVal
+                    bestVal = val;
+                    bestC   = c;
+                end
+            end
+        end
+
+        %% ~~~~~~~~~~~~~~~ validityCost ~~~~~~~~~~~~~~~ %%
+        function val = Validity_cost(obj, c, X)
+            % Compute validity index for integer c (including c=1)
+            [U,V] = obj.Compute_fuzzy(c, X);
+            D     = obj.distanceMetric(X, V)';  % c×N
+            Um    = U.^obj.fuzzifier;
+            N     = size(X,1);
+            switch upper(obj.validityIndex)
+              case 'XB'
+                num = sum(sum( Um .* (D.^2) ));
+                if c == 1
+                  % for a single cluster, define XB as average within‐cluster SSE
+                  val = num / N;
+                else
+                  d2                  = pdist2(V,V).^2;
+                  d2(logical(eye(c))) = Inf;
+                  denom               = N * min(d2(:));
+                  val                 = num / denom;
+                end
+              case 'PC'
+                val = sum(sum(U.^2)) / N;
+              otherwise
+                error('Unknown validityIndex "%s".', obj.validityIndex);
+            end
+        end
+
+        %% ~~~~~~~~~~~~~~~ Compute_fuzzy ~~~~~~~~~~~~~~~ %%
+        function [U, V] = Compute_fuzzy(obj, c, X)
+            % Return full membership U (c×N) and centers V (c×d)
+            [N,d] = size(X);
+            p     = 2/(obj.fuzzifier-1);
+            U     = rand(c,N); 
+            U     = bsxfun(@rdivide, U, sum(U,1));
+            delta = inf; 
+            it    = 0;
+            while it<obj.maxIter && delta>obj.tol
+                Um    = U.^obj.fuzzifier;
+                V     = (Um * X) ./ (sum(Um,2)*ones(1,d));
+                Dmat  = obj.distanceMetric(X, V);
+                DP    = Dmat.^(-p);
+                Unew  = bsxfun(@rdivide, DP', sum(DP,2)');
+                delta = max(abs(Unew(:)-U(:)));
+                U     = Unew; 
+                it    = it+1;
+            end
+        end
+    
+    end
+end

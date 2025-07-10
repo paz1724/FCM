@@ -1,53 +1,41 @@
-%Fuzzy C-means Algorithm in GnuOctave (V.3.6.4)
-%Fuzzy type 1 C-means algorithm
-%Inputs:
-%******c: Number of clusters
-%******X: Data Matrix N_samples*N_features
-%******U_up: U updating function 
-%******m: Fuzzifier as a real number
-%******metric: Distance metric as a function (by default Euclidean)
-%******Max: Maximum number of iterations
-%******tol: Tolerance  
-%***********************************************
-%Outputs: 
-%******prediction: Predicted labels of data
-%******v: Center  of clusters as a matrix c*N_features
-%***********************************************
-function [prediction v] = fcm(c, X, m, metric, Max, tol)
-[n, no] = size(X);
-U = zeros([c, n]);
-v = repmat(max(X), c, 1).*rand([c, no]);
-U = rand([c, n]);
+function [prediction, v] = fcm(c, X, m, metric, MaxIt, tol)
+%FCM  Vectorized Fuzzy C-Means clustering
+%   [prediction, v] = fcm(c, X, m, metric, MaxIt, tol)
 
-for j = 1:n
-      U(:, j) = U(:, j)./sum(U(:, j));      
-end  
+    [N, D] = size(X);
+    p      = 2/(m-1);
 
-for i = 1:c
-      v(i, :) = sum((X(:, :).*repmat(U(i, :)'.^m, 1, no)),1)./sum(U(i, :).^m);
-end
+    % initialize membership U (c×N)
+    U = rand(c,N);
+    U = bsxfun(@rdivide, U, sum(U,1));
 
-v_old = v;
-delta = 1e4;
-k = 0;
-while  (k<Max & delta>tol)
-    for i = 1:c
-      for j = 1:n
-        U(i, j) = 1/sum((metric(X(j, :), v(i, :))./metric(X(j, :), v)).^(2/(m-1)));
-      end
+    % initial centers
+    Um   = U.^m;                       % c×N
+    v    = (Um * X) ./ (sum(Um,2)*ones(1,D));  % c×D
+    vOld = v;
+    delta = inf;
+    it    = 0;
+
+    while it<MaxIt && delta>tol
+        % distance matrix (N×c)
+        Dmat = metric(X, v);
+
+        % update U
+        DP    = Dmat .^ (-p);          % N×c
+        denom = sum(DP,2);             % N×1
+        U     = bsxfun(@rdivide, DP', denom');  % c×N
+
+        % update centers
+        Um   = U.^m;                   % c×N
+        v    = (Um * X) ./ (sum(Um,2)*ones(1,D));  % c×D
+
+        % check convergence
+        delta = max(abs(v(:)-vOld(:)));
+        vOld  = v;
+        it    = it + 1;
     end
-    for i = 1:c
-       v(i, :) = sum((X(:, :).*repmat(U(i, :)'.^m, 1, no)), 1)./sum(U(i, :).^m);  
-    end
-v_new = v;
-delta = max(max(abs(v_new-v_old)));
-v_old = v;
 
-k = k+1;
-end
-prediction = zeros([1, n]);
-for i = 1:n
-   [M, prediction(i)]=max(U(:, i));
-end
-
+    % hard labels
+    [~, prediction] = max(U, [], 1);
+    prediction = prediction(:);
 end
