@@ -87,40 +87,12 @@ classdef cFCM < handle
             %% Run
             [obj.labels, obj.centers] = obj.Run(obj.numClusters, X);
 
+            %% Prune_outliers
+            obj.Prune_outliers(X);
+
             %% Remove_outlier_classes
             obj.Remove_outlier_classes();
 
-        end
-
-        %% ~~~~~~~~~~~~~~~ pruneOutliers ~~~~~~~~~~~~~~~ %%
-        function Prune_outliers(obj, X)
-            %PRUNEOUTLIERS  Remove per-cluster outliers by chosen rule
-            if isempty(obj.labels)
-                error('Call fit(X) first.');
-            end
-            N      = size(X,1); K = obj.numClusters;
-            clean  = obj.labels;
-            outidx = false(N,1);
-            for k=1:K
-                idx = find(obj.labels==k);
-                if isempty(idx), continue; end
-                d = sqrt(sum((X(idx,:)-obj.centers(k,:)).^2,2));
-                switch lower(obj.outlierMethod)
-                    case 'iqr'
-                        Q1  = prctile(d, obj.iqrLowerPercentile);
-                        Q3  = prctile(d, obj.iqrUpperPercentile);
-                        thr = Q3 + obj.outlierIQRFactor*(Q3 - Q1);
-                    case 'percentile'
-                        thr = prctile(d, obj.outlierFraction*100);
-                    otherwise
-                        error('Unknown outlierMethod "%s".', obj.outlierMethod);
-                end
-                bad = d > thr;
-                outidx(idx(bad)) = true;
-                clean(idx(bad))  = 0;
-            end
-            obj.cleanLabels = clean;
-            obj.outlierIdx  = outidx;
         end
 
         %% ~~~~~~~~~~~~~~~ plotResults ~~~~~~~~~~~~~~~ %%
@@ -136,15 +108,23 @@ classdef cFCM < handle
 
             %% Plot Raw
             subplot(1,2,1);
-            hold all; 
+            hold on; 
             grid minor;
 
             for k=1:c
                 scatter(X(obj.labels==k,1), X(obj.labels==k,2), 36, cols(k,:), 'filled');
+
+                cnt = sum(obj.labels==k);
+                if cnt==0
+                    marker = 'x';
+                else
+                    marker = '*';
+                end
+                scatter(obj.centers(k,1), obj.centers(k,2), 100, cols(k,:), 'Marker', marker,'LineWidth',1.5);
             end
-            scatter(obj.centers(:,1), obj.centers(:,2), 100, 'k*','LineWidth',1.5);
-            legend([arrayfun(@(k)sprintf('C%d',k),1:c,'uni',false),{'Centers'}], ...
+            legend([arrayfun(@(k)sprintf('C%d',ceil(k/2)),1:2*c,'uni',false),{'Centers'}], ...
                    'Location','BestOutside');
+            hold off; 
 
             % build multiline title: heading + centers
             info = cell(c+1,1);
@@ -158,16 +138,24 @@ classdef cFCM < handle
 
             %% Plot Pruned
             subplot(1,2,2); 
-            hold all; 
+            hold on;
             grid minor;
             for k=1:c
                 scatter(X(obj.cleanLabels==k,1), X(obj.cleanLabels==k,2), 36, cols(k,:), 'filled');
+
+                cnt = sum(obj.cleanLabels==k);
+                if cnt==0
+                    marker = 'x';
+                else
+                    marker = '*';
+                end
+                scatter(obj.centers(k,1), obj.centers(k,2), 100, cols(k,:), 'Marker', marker,'LineWidth',1.5);
             end
             scatter(X(obj.outlierIdx,1), X(obj.outlierIdx,2), 36, [.5 .5 .5], 'x');
-            scatter(obj.centers(:,1), obj.centers(:,2), 100, 'k*','LineWidth',1.5);
-            legend([arrayfun(@(k)sprintf('C%d',k),1:c,'uni',false),{'Outliers','Centers'}], ...
-                   'Location','BestOutside');
             
+            legend([arrayfun(@(k)sprintf('C%d',ceil(k/2)),1:2*c,'uni',false),{'Outliers','Centers'}], ...
+                   'Location','BestOutside');
+            hold off; 
 
             % Cluster info: center and count per cluster, one row each
             info = cell(1,1);
@@ -274,6 +262,37 @@ classdef cFCM < handle
             end
         end
     
+        %% ~~~~~~~~~~~~~~~ pruneOutliers ~~~~~~~~~~~~~~~ %%
+        function Prune_outliers(obj, X)
+            %PRUNEOUTLIERS  Remove per-cluster outliers by chosen rule
+            if isempty(obj.labels)
+                error('Call fit(X) first.');
+            end
+            N      = size(X,1); K = obj.numClusters;
+            clean  = obj.labels;
+            outidx = false(N,1);
+            for k=1:K
+                idx = find(obj.labels==k);
+                if isempty(idx), continue; end
+                d = sqrt(sum((X(idx,:)-obj.centers(k,:)).^2,2));
+                switch lower(obj.outlierMethod)
+                    case 'iqr'
+                        Q1  = prctile(d, obj.iqrLowerPercentile);
+                        Q3  = prctile(d, obj.iqrUpperPercentile);
+                        thr = Q3 + obj.outlierIQRFactor*(Q3 - Q1);
+                    case 'percentile'
+                        thr = prctile(d, obj.outlierFraction*100);
+                    otherwise
+                        error('Unknown outlierMethod "%s".', obj.outlierMethod);
+                end
+                bad = d > thr;
+                outidx(idx(bad)) = true;
+                clean(idx(bad))  = 0;
+            end
+            obj.cleanLabels = clean;
+            obj.outlierIdx  = outidx;
+        end
+
         %% ~~~~~~~~~~~~~~~ Remove_outlier_classes ~~~~~~~~~~~~~~~ %%
         function [] = Remove_outlier_classes(obj)
             counts = histcounts(obj.labels, 0.5:1:(obj.numClusters+0.5));

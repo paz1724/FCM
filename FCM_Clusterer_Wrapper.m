@@ -6,7 +6,8 @@ X1 = randn(5,2)*0.3 + [1,-1];
 X2 = randn(4,2)*0.4 + [-1,2];
 X3 = randn( 3,2)*0.5 + [2, 1];
 X4 = randn( 2,2)*0.5 + [3, 4];
-X  = [X1; X2; X3; X4];
+X5 = randn( 1,2)*0.5 + [9, 3];
+X  = [X1; X2; X3; X4; X5];
 
 %% Create clusterer with automatic c‐selection
 oFCM = cFCM( ...

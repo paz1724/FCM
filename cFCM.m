@@ -108,7 +108,7 @@ classdef cFCM < handle
 
             %% Plot Raw
             subplot(1,2,1);
-            hold all; 
+            hold on; 
             grid minor;
 
             for k=1:c
@@ -122,8 +122,9 @@ classdef cFCM < handle
                 end
                 scatter(obj.centers(k,1), obj.centers(k,2), 100, cols(k,:), 'Marker', marker,'LineWidth',1.5);
             end
-            legend([arrayfun(@(k)sprintf('C%d',k),1:c,'uni',false),{'Centers'}], ...
+            legend([arrayfun(@(k)sprintf('C%d',ceil(k/2)),1:2*c,'uni',false),{'Centers'}], ...
                    'Location','BestOutside');
+            hold off; 
 
             % build multiline title: heading + centers
             info = cell(c+1,1);
@@ -137,7 +138,7 @@ classdef cFCM < handle
 
             %% Plot Pruned
             subplot(1,2,2); 
-            hold all; 
+            hold on;
             grid minor;
             for k=1:c
                 scatter(X(obj.cleanLabels==k,1), X(obj.cleanLabels==k,2), 36, cols(k,:), 'filled');
@@ -152,9 +153,9 @@ classdef cFCM < handle
             end
             scatter(X(obj.outlierIdx,1), X(obj.outlierIdx,2), 36, [.5 .5 .5], 'x');
             
-            legend([arrayfun(@(k)sprintf('C%d',k),1:c,'uni',false),{'Outliers','Centers'}], ...
+            legend([arrayfun(@(k)sprintf('C%d',ceil(k/2)),1:2*c,'uni',false),{'Outliers','Centers'}], ...
                    'Location','BestOutside');
-            
+            hold off; 
 
             % Cluster info: center and count per cluster, one row each
             info = cell(1,1);
